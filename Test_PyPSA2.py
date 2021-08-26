@@ -107,6 +107,7 @@ for lv in lvl:
         df[lv+co2_limit] = generators
 
 
+
 #df.plot.bar(df.filter(regex='1.0'))
 
 df1 = df.filter(like='1.0')
@@ -152,6 +153,63 @@ ax3.yaxis.grid()
 name = r'\subplotsinstalledcapacity.jpg'
 plt.show()
 plt.savefig(path+name, dpi=300,format='jpg')   
+
+
+#%%#### Plots
+flex= 'elec_s_37'  
+lv = 'lv1.0'
+co2_limit = 'Co2L0.1'
+solar = 'solar+p3-dist'
+co2_limits=['Co2L0.5', 'Co2L0.2', 'Co2L0.1', 'Co2L0.05',  'Co2L0'] # the corresponding CO2 limits in the code
+lvl = ['1.0', '1.1', '2.0'] #, '1.2', '1.5', '2.0'
+
+
+df = pd.DataFrame()
+
+for lv in lvl:
+    for co2_limit in co2_limits:
+        network_name= (flex+ '_' + 'lv'+ lv + '__' +co2_limit+ '-' + solar +'1'+'_'+'2030'+'.nc')
+        print(network_name)
+        n = pypsa.Network(network_name) 
+        generators = n.generators.groupby("carrier")["p_nom_opt"].sum()
+        storage = n.storage_units.groupby("carrier")["p_nom_opt"].sum()
+        df[lv+co2_limit] = generators
+
+# Links, storage and lines
+links=n.links.p_nom_opt
+storage=n.storage_units.p_nom_opt
+lines=n.lines
+stores = n.stores
+n.plot()
+
+pypsa.plot.plot(n)
+name = r'\linesandlinkes.jpg'
+plt.show()
+plt.savefig(path+name, dpi=300,format='jpg') 
+
+
+# Plotting Networks:
+import cartopy.crs as ccrs
+loading = (n.lines_t.p0.abs().mean().sort_index()/(n.lines.s_nom_opt*n.lines.s_max_pu).sort_index()).fillna(0.)
+
+fig,ax = plt.subplots(
+   #figsize(10,10),
+    subplot_kw={"projection": ccrs.PlateCarree()}
+    )
+
+n.plot(ax=ax,
+       bus_colors='gray',
+       branch_components=["Line"],
+       line_widths=n.lines.s_nom_opt/3e3,
+       line_colors=loading,
+       line_cmap=plt.cm.viridis,
+       color_geomap=True,
+       bus_sizes=0)
+ax.axis('off');
+name = r'\linesforeurope.jpg'
+plt.show()
+plt.savefig(path+name, dpi=300,format='jpg') 
+
 
 #%%
 ## PLOT OF CO2 limits for line limit 1.0 ##
@@ -889,103 +947,329 @@ plt.show()
 plt.savefig(path+name,dpi=300,format='jpg') #bbox_inches='tight' 
 
 
-#%% Nice plots of Europe
+#%% Fourier Transform on Hydrogen storage (summed)
+pathdata = r'C:\Users\ander\OneDrive - Aarhus universitet\Maskiningenioer\Kandidat\3. semester\PreProject Master\Network files'
 
-import os
-#allow plotting without Xwindows
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-from plot_summary import rename_techs, preferred_order
-from make_summary import assign_groups
-from matplotlib.patches import Circle, Ellipse
-from matplotlib.legend_handler import HandlerPatch
+flex= 'elec_s_37'  
+line_limit = 'lv1.0'
+co2_limit = '0.1'
+solar = 'solar+p3-'
+cost_dist='1'
 
-def make_handler_map_to_scale_circles_as_in(ax, dont_resize_actively=False):
-    fig = ax.get_figure()
-    def axes2pt():
-        return np.diff(ax.transData.transform([(0,0), (1,1)]), axis=0)[0] * (72./fig.dpi)
+#line_limit='0.125' 
+co2_limits=['0.5', '0.2', '0.1', '0.05',  '0']
 
-    ellipses = []
-    if not dont_resize_actively:
-        def update_width_height(event):
-            dist = axes2pt()
-            for e, radius in ellipses: e.width, e.height = 2. * radius * dist
-        fig.canvas.mpl_connect('resize_event', update_width_height)
-        ax.callbacks.connect('xlim_changed', update_width_height)
-        ax.callbacks.connect('ylim_changed', update_width_height)
+flexs = ['elec_s_37'] 
+techs=['H2']
 
-    def legend_circle_handler(legend, orig_handle, xdescent, ydescent,
-                              width, height, fontsize):
-        w, h = 2. * orig_handle.get_radius() * axes2pt()
-        e = Ellipse(xy=(0.5*width-0.5*xdescent, 0.5*height-0.5*ydescent), width=w, height=w)
-        ellipses.append((e, orig_handle.get_radius()))
-        return e
-    return {Circle: HandlerPatch(patch_func=legend_circle_handler)}
+network_name= (flex + '_' + line_limit + '__' +'Co2L'+ co2_limit+ '-' + solar +'dist'+cost_dist+'_'+'2030'+'.nc')
 
+network = pypsa.Network(network_name)         
 
+datos = pd.DataFrame(index=pd.MultiIndex.from_product([pd.Series(data=techs, name='tech',),
+                                                       pd.Series(data=flexs, name='flex',),
+                                                       pd.Series(data=co2_limits, name='co2_limits',)]), 
+                      columns=pd.Series(data=np.arange(0,8760), name='hour',))
+idx = pd.IndexSlice
+df = pd.DataFrame()
+generators=pd.DataFrame()
 
-def make_legend_circles_for(sizes, scale=1.0, **kw):
-    return [Circle((0,0), radius=(s/scale)**0.5, **kw) for s in sizes]
+for co2_limit in co2_limits:
+        network_name= (flex + '_' + line_limit + '__' +'Co2L'+ co2_limit+ '-' + solar +'dist'+cost_dist+'_'+'2030'+'.nc')  
+        network = pypsa.Network(network_name)
+        generators = np.array(network.stores_t.p[network.stores.index[network.stores.carrier == 'H2']].sum(axis=1))
+        datos.loc[idx['H2', flex ,co2_limit], :] = generators
 
-def plot_primary_energy(flex,line_limit, network_name):
-    
-    n = pypsa.Network(network_name)
-
-    assign_groups(n)
-
-    #Drop non-electric buses so they don't clutter the plot
-    n.buses.drop(n.buses.index[n.buses.index.str.len() != 2],inplace=True)
-
-    primary = pd.DataFrame(index=n.buses.index)
-
-    primary["gas"] = n.stores_t.p[n.stores.index[n.stores.index.str[3:] == "gas Store"]].sum().rename(lambda x : x[:2])
-
-    primary["hydroelectricity"] = n.storage_units_t.p[n.storage_units.index[n.storage_units.index.str[3:] == "hydro"]].sum().rename(lambda x : x[:2]).fillna(0.)
-
-    n.generators["country"] = n.generators.index.str[:2]
-
-    n.generators["nice_group"] = n.generators["group"].map(rename_techs)
-
-    for carrier in n.generators.nice_group.value_counts().index:
-        s = n.generators_t.p[n.generators.index[n.generators.nice_group == carrier]].sum().groupby(n.generators.country).sum().fillna(0.)
-        
-        if carrier in primary.columns:
-            primary[carrier] += s
-        else:
-            primary[carrier] = s
+# Save dataframe to pickled pandas object and csv file
+datos.to_pickle(pathdata+'\data_for_figures/H2_summed_timeseries.pickle') 
+datos.to_csv(pathdata+'\data_for_figures/H2_summed_timeseries.csv', sep=',') 
 
 
-    primary[primary < 0.] = 0.
-    primary = primary.fillna(0.)
-    print(primary)
-    print(primary.sum())
-    primary = primary.stack().sort_index()
-
-    fig, ax = plt.subplots(1,1)
-
-    fig.set_size_inches(6,4.3)
-
-    bus_size_factor =1e8
-    linewidth_factor=1e3
-    line_color="m"
-
-    n.buses.loc["NO",["x","y"]] = [9.5,61.5]
+## The plot
+##### Figure of the Fourier transform for the PHS charging patterns
+datos=pd.read_csv(pathdata+'\data_for_figures/H2_summed_timeseries.csv', sep=',', header=0, index_col=(0,1,2))
 
 
-    line_widths_exp = pd.concat(dict(Line=n.lines.s_nom_opt, Link=n.links.p_nom_opt))
+plt.style.use('seaborn-ticks')
+plt.rcParams['axes.labelsize'] = 20
+plt.rcParams['xtick.labelsize'] = 18
+plt.rcParams['ytick.labelsize'] = 18
+plt.rcParams['xtick.direction'] = 'in'
+plt.rcParams['ytick.direction'] = 'in'
+
+plt.figure(figsize=(10, 10))
+gs1 = gridspec.GridSpec(10, 1)
+gs1.update(wspace=0.05)
+
+ax1 = plt.subplot(gs1[0:3,0])
+ax1.set_ylabel('H2 filling level')
+ax1.set_xlabel('hour')
+ax1.set_xlim(0,8760)
+ax1.set_ylim(0,1)
+
+flex='elec_s_37'#'elec_central' #'elec_only'
+
+co2_limits=['0.5', '0.2', '0']
+storage_names=['H2'] #,'battery','H2']
+dic_color={'H2':'darkgreen'}
+storage_names=['H2'] #,'battery','H2']
+dic_color={'0.5':'olive','0.2':'darkgreen','0':'red'}
+dic_label={'0.5':'50%','0.2':'20%','0':'0%'}
+dic_alpha={'0.5':1,'0.2':1,'0':1}
+dic_linewidth={'0.5':2,'0.2':2,'0':2}
+
+for i,co2_lim in enumerate(co2_limits):
+    ax2 = plt.subplot(gs1[4+2*i:6+2*i,0])    
+    ax2.set_xlim(1,10000)
+    ax2.set_ylim(0,1.2)
+    plt.axvline(x=24, color='lightgrey', linestyle='--')
+    plt.axvline(x=24*7, color='lightgrey', linestyle='--')
+    plt.axvline(x=24*30, color='lightgrey', linestyle='--')
+    plt.axvline(x=8760, color='lightgrey', linestyle='--')   
+    ax1.plot(np.arange(0,8760), datos.loc[idx['H2', flex, float(co2_lim)], :]/np.max(datos.loc[idx['H2', flex, float(co2_lim)], :]), 
+             color=dic_color[co2_lim], alpha=dic_alpha[co2_lim], linewidth=dic_linewidth[co2_lim],
+             label='CO$_2$='+dic_label[co2_lim])
+    ax1.legend(loc=(0.2, 1.05), ncol=3, shadow=True,fancybox=True,prop={'size':18})
+    n_years=1
+    t_sampling=1 # sampling rate, 1 data per hour
+    x = np.arange(1,8761*n_years, t_sampling) 
+    y = np.hstack([np.array(datos.loc[idx['H2', flex, float(co2_lim)], :])]*n_years)
+    n = len(x)
+    y_fft=np.fft.fft(y)/n #n for normalization    
+    frq=np.arange(0,1/t_sampling,1/(t_sampling*n))        
+    period=np.array([1/f for f in frq])        
+    ax2.semilogx(period[1:n//2],abs(y_fft[1:n//2])**2/np.max(abs(y_fft[1:n//2])**2), color=dic_color[co2_lim],
+                 linewidth=2, label='CO$_2$ = '+dic_label[co2_lim])  
+    ax2.legend(loc='center right', shadow=True,fancybox=True,prop={'size':18})
+    #ax2.set_yticks([0, 0.1, 0.2])
+    #ax2.set_yticklabels(['0', '0.1', '0.2'])
+    plt.text(26, 0.95, 'day', horizontalalignment='left', color='dimgrey', fontsize=14)
+    plt.text(24*7+20, 0.95, 'week', horizontalalignment='left', color='dimgrey', fontsize=14)
+    plt.text(24*30+20, 0.95, 'month', horizontalalignment='left', color='dimgrey', fontsize=14)
+    if i==2:
+        ax2.set_xticks([1, 10, 100, 1000, 10000])
+        ax2.set_xticklabels(['1', '10', '100', '1000', '10000'])
+        ax2.set_xlabel('cycling period (hours)')
+    else: 
+        ax2.set_xticks([])
+name = r'\Fourier_transform_H2_summed.jpg'
+plt.show()
+plt.savefig(path+name,dpi=300,format='jpg') #bbox_inches='tight' 
+
+#%% Battery Fourier Power Series
+pathdata = r'C:\Users\ander\OneDrive - Aarhus universitet\Maskiningenioer\Kandidat\3. semester\PreProject Master\Network files'
+
+flex= 'elec_s_37'  
+line_limit = 'lv1.0'
+co2_limit = '0.1'
+solar = 'solar+p3-'
+cost_dist='1'
+
+#line_limit='0.125' 
+co2_limits=['0.5', '0.2', '0.1', '0.05',  '0']
+
+flexs = ['elec_s_37'] 
+techs=['battery']
+
+network_name= (flex + '_' + line_limit + '__' +'Co2L'+ co2_limit+ '-' + solar +'dist'+cost_dist+'_'+'2030'+'.nc')
+
+network = pypsa.Network(network_name)         
+
+datos = pd.DataFrame(index=pd.MultiIndex.from_product([pd.Series(data=techs, name='tech',),
+                                                       pd.Series(data=flexs, name='flex',),
+                                                       pd.Series(data=co2_limits, name='co2_limits',)]), 
+                      columns=pd.Series(data=np.arange(0,8760), name='hour',))
+idx = pd.IndexSlice
+df = pd.DataFrame()
+generators=pd.DataFrame()
+
+for co2_limit in co2_limits:
+        network_name= (flex + '_' + line_limit + '__' +'Co2L'+ co2_limit+ '-' + solar +'dist'+cost_dist+'_'+'2030'+'.nc')  
+        network = pypsa.Network(network_name)
+        generators = np.array(network.stores_t.p[network.stores.index[network.stores.carrier == 'battery']].sum(axis=1))
+        datos.loc[idx['battery', flex ,co2_limit], :] = generators
+
+# Save dataframe to pickled pandas object and csv file
+datos.to_pickle(pathdata+'\data_for_figures/battery_summed_timeseries.pickle') 
+datos.to_csv(pathdata+'\data_for_figures/battery_summed_timeseries.csv', sep=',') 
 
 
-    dic_col={'solar':'gold', 'onwind':'blue', 'offwind':'blue',#'lightskyblue',
-             'hidroelectricity':'green', 'gas':'brown'}
-    n.plot(bus_sizes=primary/bus_size_factor,
-           bus_colors=snakemake.config['plotting']['tech_colors'],
-           line_colors=dict(Line=line_color, Link=line_color),
-           line_widths=line_widths_exp/linewidth_factor,
-           ax=ax, basemap=True)
+## The plot
+##### Figure of the Fourier transform for the PHS charging patterns
+datos=pd.read_csv(pathdata+'\data_for_figures/battery_summed_timeseries.csv', sep=',', header=0, index_col=(0,1,2))
 
 
+plt.style.use('seaborn-ticks')
+plt.rcParams['axes.labelsize'] = 20
+plt.rcParams['xtick.labelsize'] = 18
+plt.rcParams['ytick.labelsize'] = 18
+plt.rcParams['xtick.direction'] = 'in'
+plt.rcParams['ytick.direction'] = 'in'
+
+plt.figure(figsize=(10, 10))
+gs1 = gridspec.GridSpec(10, 1)
+gs1.update(wspace=0.05)
+
+ax1 = plt.subplot(gs1[0:3,0])
+ax1.set_ylabel('Battery charge level')
+ax1.set_xlabel('hour')
+ax1.set_xlim(0,8760)
+ax1.set_ylim(0,1)
+
+flex='elec_s_37'#'elec_central' #'elec_only'
+
+co2_limits=['0.5', '0.2', '0']
+storage_names=['battery'] #,'battery','H2']
+dic_color={'battery':'darkgreen'}
+storage_names=['battery'] #,'battery','H2']
+dic_color={'0.5':'olive','0.2':'darkgreen','0':'red'}
+dic_label={'0.5':'50%','0.2':'20%','0':'0%'}
+dic_alpha={'0.5':1,'0.2':1,'0':1}
+dic_linewidth={'0.5':2,'0.2':2,'0':2}
+
+for i,co2_lim in enumerate(co2_limits):
+    ax2 = plt.subplot(gs1[4+2*i:6+2*i,0])    
+    ax2.set_xlim(1,10000)
+    ax2.set_ylim(0,1.2)
+    plt.axvline(x=24, color='lightgrey', linestyle='--')
+    plt.axvline(x=24*7, color='lightgrey', linestyle='--')
+    plt.axvline(x=24*30, color='lightgrey', linestyle='--')
+    plt.axvline(x=8760, color='lightgrey', linestyle='--')   
+    ax1.plot(np.arange(0,8760), datos.loc[idx['battery', flex, float(co2_lim)], :]/np.max(datos.loc[idx['battery', flex, float(co2_lim)], :]), 
+             color=dic_color[co2_lim], alpha=dic_alpha[co2_lim], linewidth=dic_linewidth[co2_lim],
+             label='CO$_2$='+dic_label[co2_lim])
+    ax1.legend(loc=(0.2, 1.05), ncol=3, shadow=True,fancybox=True,prop={'size':18})
+    n_years=1
+    t_sampling=1 # sampling rate, 1 data per hour
+    x = np.arange(1,8761*n_years, t_sampling) 
+    y = np.hstack([np.array(datos.loc[idx['battery', flex, float(co2_lim)], :])]*n_years)
+    n = len(x)
+    y_fft=np.fft.fft(y)/n #n for normalization    
+    frq=np.arange(0,1/t_sampling,1/(t_sampling*n))        
+    period=np.array([1/f for f in frq])        
+    ax2.semilogx(period[1:n//2],abs(y_fft[1:n//2])**2/np.max(abs(y_fft[1:n//2])**2), color=dic_color[co2_lim],
+                 linewidth=2, label='CO$_2$ = '+dic_label[co2_lim])  
+    ax2.legend(loc='center right', shadow=True,fancybox=True,prop={'size':18})
+    #ax2.set_yticks([0, 0.1, 0.2])
+    #ax2.set_yticklabels(['0', '0.1', '0.2'])
+    plt.text(26, 0.95, 'day', horizontalalignment='left', color='dimgrey', fontsize=14)
+    plt.text(24*7+20, 0.95, 'week', horizontalalignment='left', color='dimgrey', fontsize=14)
+    plt.text(24*30+20, 0.95, 'month', horizontalalignment='left', color='dimgrey', fontsize=14)
+    if i==2:
+        ax2.set_xticks([1, 10, 100, 1000, 10000])
+        ax2.set_xticklabels(['1', '10', '100', '1000', '10000'])
+        ax2.set_xlabel('cycling period (hours)')
+    else: 
+        ax2.set_xticks([])
+name = r'\Fourier_transform_battery_summed.jpg'
+plt.show()
+plt.savefig(path+name,dpi=300,format='jpg') #bbox_inches='tight' 
+
+#%% Home Battery Fourier Power Series
+pathdata = r'C:\Users\ander\OneDrive - Aarhus universitet\Maskiningenioer\Kandidat\3. semester\PreProject Master\Network files'
+
+flex= 'elec_s_37'  
+line_limit = 'lv1.0'
+co2_limit = '0.1'
+solar = 'solar+p3-'
+cost_dist='1'
+
+#line_limit='0.125' 
+co2_limits=['0.5', '0.2', '0.1', '0.05',  '0']
+
+flexs = ['elec_s_37'] 
+techs=['home battery']
+
+network_name= (flex + '_' + line_limit + '__' +'Co2L'+ co2_limit+ '-' + solar +'dist'+cost_dist+'_'+'2030'+'.nc')
+
+network = pypsa.Network(network_name)         
+
+datos = pd.DataFrame(index=pd.MultiIndex.from_product([pd.Series(data=techs, name='tech',),
+                                                       pd.Series(data=flexs, name='flex',),
+                                                       pd.Series(data=co2_limits, name='co2_limits',)]), 
+                      columns=pd.Series(data=np.arange(0,8760), name='hour',))
+idx = pd.IndexSlice
+df = pd.DataFrame()
+generators=pd.DataFrame()
+
+for co2_limit in co2_limits:
+        network_name= (flex + '_' + line_limit + '__' +'Co2L'+ co2_limit+ '-' + solar +'dist'+cost_dist+'_'+'2030'+'.nc')  
+        network = pypsa.Network(network_name)
+        generators = np.array(network.stores_t.p[network.stores.index[network.stores.carrier == 'home battery']].sum(axis=1))
+        datos.loc[idx['home battery', flex ,co2_limit], :] = generators
+
+# Save dataframe to pickled pandas object and csv file
+datos.to_pickle(pathdata+'\data_for_figures/homebattery_summed_timeseries.pickle') 
+datos.to_csv(pathdata+'\data_for_figures/homebattery_summed_timeseries.csv', sep=',') 
 
 
+## The plot
+##### Figure of the Fourier transform for the PHS charging patterns
+datos=pd.read_csv(pathdata+'\data_for_figures/homebattery_summed_timeseries.csv', sep=',', header=0, index_col=(0,1,2))
 
 
+plt.style.use('seaborn-ticks')
+plt.rcParams['axes.labelsize'] = 20
+plt.rcParams['xtick.labelsize'] = 18
+plt.rcParams['ytick.labelsize'] = 18
+plt.rcParams['xtick.direction'] = 'in'
+plt.rcParams['ytick.direction'] = 'in'
+
+plt.figure(figsize=(10, 10))
+gs1 = gridspec.GridSpec(10, 1)
+gs1.update(wspace=0.05)
+
+ax1 = plt.subplot(gs1[0:3,0])
+ax1.set_ylabel('Home battery charge level')
+ax1.set_xlabel('hour')
+ax1.set_xlim(0,8760)
+ax1.set_ylim(0,1)
+
+flex='elec_s_37'#'elec_central' #'elec_only'
+
+co2_limits=['0.5', '0.2', '0']
+storage_names=['home battery'] #,'battery','H2']
+dic_color={'home battery':'darkgreen'}
+storage_names=['home battery'] #,'battery','H2']
+dic_color={'0.5':'olive','0.2':'darkgreen','0':'red'}
+dic_label={'0.5':'50%','0.2':'20%','0':'0%'}
+dic_alpha={'0.5':1,'0.2':1,'0':1}
+dic_linewidth={'0.5':2,'0.2':2,'0':2}
+
+for i,co2_lim in enumerate(co2_limits):
+    ax2 = plt.subplot(gs1[4+2*i:6+2*i,0])    
+    ax2.set_xlim(1,10000)
+    ax2.set_ylim(0,1.2)
+    plt.axvline(x=24, color='lightgrey', linestyle='--')
+    plt.axvline(x=24*7, color='lightgrey', linestyle='--')
+    plt.axvline(x=24*30, color='lightgrey', linestyle='--')
+    plt.axvline(x=8760, color='lightgrey', linestyle='--')   
+    ax1.plot(np.arange(0,8760), datos.loc[idx['home battery', flex, float(co2_lim)], :]/np.max(datos.loc[idx['home battery', flex, float(co2_lim)], :]), 
+             color=dic_color[co2_lim], alpha=dic_alpha[co2_lim], linewidth=dic_linewidth[co2_lim],
+             label='CO$_2$='+dic_label[co2_lim])
+    ax1.legend(loc=(0.2, 1.05), ncol=3, shadow=True,fancybox=True,prop={'size':18})
+    n_years=1
+    t_sampling=1 # sampling rate, 1 data per hour
+    x = np.arange(1,8761*n_years, t_sampling) 
+    y = np.hstack([np.array(datos.loc[idx['home battery', flex, float(co2_lim)], :])]*n_years)
+    n = len(x)
+    y_fft=np.fft.fft(y)/n #n for normalization    
+    frq=np.arange(0,1/t_sampling,1/(t_sampling*n))        
+    period=np.array([1/f for f in frq])        
+    ax2.semilogx(period[1:n//2],abs(y_fft[1:n//2])**2/np.max(abs(y_fft[1:n//2])**2), color=dic_color[co2_lim],
+                 linewidth=2, label='CO$_2$ = '+dic_label[co2_lim])  
+    ax2.legend(loc='center right', shadow=True,fancybox=True,prop={'size':18})
+    #ax2.set_yticks([0, 0.1, 0.2])
+    #ax2.set_yticklabels(['0', '0.1', '0.2'])
+    plt.text(26, 0.95, 'day', horizontalalignment='left', color='dimgrey', fontsize=14)
+    plt.text(24*7+20, 0.95, 'week', horizontalalignment='left', color='dimgrey', fontsize=14)
+    plt.text(24*30+20, 0.95, 'month', horizontalalignment='left', color='dimgrey', fontsize=14)
+    if i==2:
+        ax2.set_xticks([1, 10, 100, 1000, 10000])
+        ax2.set_xticklabels(['1', '10', '100', '1000', '10000'])
+        ax2.set_xlabel('cycling period (hours)')
+    else: 
+        ax2.set_xticks([])
+name = r'\Fourier_transform_homebattery_summed.jpg'
+plt.show()
+plt.savefig(path+name,dpi=300,format='jpg') #bbox_inches='tight' 

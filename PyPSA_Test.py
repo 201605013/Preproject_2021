@@ -51,6 +51,12 @@ n.storage_units.groupby("carrier").p_nom_opt.sum()/1e3
 (n.storage_units_t.state_of_charge.sum(axis=1).resample('D').mean() / 1e6).plot(figsize=(15,3))
 
 
+n.plot()
+
+pypsa.plot.plot(n)
+
+
+
 # Plotting Networks:
 import cartopy.crs as ccrs
 loading = (n.lines_t.p0.abs().mean().sort_index()/(n.lines.s_nom_opt*n.lines.s_max_pu).sort_index()).fillna(0.)
