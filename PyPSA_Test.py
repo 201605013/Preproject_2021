@@ -13,6 +13,14 @@ plt.style.use("bmh")
 
 n = pypsa.Network("elec_s_37_lv2.0__Co2L0-solar+p3-dist0.1_2030.nc")
 
+n = pypsa.Network('elec_s_5_ec_lcopt_Co2L-24H.nc')
+
+n = pypsa.Network('elec_s_9_ec_lcopt_Co2L-168H0.nc')
+
+n = pypsa.Network('elec_s_37.nc')
+
+
+n.plot()
 
 # Generators
 print(n.generators.p_nom_opt)
@@ -26,6 +34,12 @@ print(n.links.p_nom_opt)
 
 # Generator output time series
 print(n.generators_t.p)
+
+
+
+print(n.global_constraints.constant) #CO2 limit (constant in the constraint)
+
+print(n.global_constraints.mu) #CO2 price (Lagrance multiplier in the constraint)
 
 # Plot of the network
 n.plot()

@@ -34,6 +34,7 @@ cost_dist='1'
 network_name= (flex + '_' + line_limit + '__' + co2_limit+ '-' + solar +'dist'+cost_dist+'_'+'2030'+'.nc')
 
 network = pypsa.Network(network_name)         
+    
 
 co2_limits=['0.5', '0.2', '0.1', '0.05',  '0'] #, '0.025']
 line_limits=['lv1.0','lv1.1','lv1.2','lv1.5','lv2.0']
